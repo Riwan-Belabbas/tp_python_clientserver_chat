@@ -43,7 +43,8 @@ class Client():
         try:
             # Le message est-il l'annonce du pseudo ("USERNAME ...") ?
             username_result = re.search('^USERNAME (.*)$', message)
-            if not username_result:
+            # Les commandes (qui commencent par "/", ex: /name) partent telles quelles
+            if not username_result and not message.startswith("/"):
                 # Message normal : on ajoute le pseudo devant ("riwan: hello")
                 message = "{0}: {1}".format(self.username, message)
             # Encode le texte en octets (UTF-8) puis l'envoie

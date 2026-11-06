@@ -7,14 +7,16 @@ from clientthread import ClientListener
 class Server():
     """Le serveur de chat : il accepte les clients et diffuse leurs messages à tous."""
 
-    def __init__(self, port):
+    def __init__(self, port, name="Serveur de chat"):
+        # Le nom du serveur : renvoyé aux clients qui envoient la commande /name
+        self.name = name
         # Création d'un socket TCP (SOCK_STREAM) en IPv4 (AF_INET) : la "prise réseau" du serveur
         self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         # On attache le socket au port donné ('' = toutes les interfaces réseau de la machine)
         self.listener.bind(('', port))
         # Le serveur se met en écoute (1 = taille de la file d'attente des connexions)
         self.listener.listen(1)
-        print("Listening on port", port)
+        print("Listening on port", port, "- nom du serveur :", name)
         # Liste des sockets de tous les clients connectés (sert à diffuser les messages)
         self.clients_sockets = []
 
@@ -55,5 +57,7 @@ class Server():
 
 # Ce bloc ne s'exécute que si on lance ce fichier directement (py server.py)
 if __name__ == "__main__":
-    server = Server(59001)
+    # On demande un nom au lancement ; Entrée = nom par défaut
+    name = input("Nom du serveur (Entrée = Serveur de chat) : ") or "Serveur de chat"
+    server = Server(59001, name)
     server.run()

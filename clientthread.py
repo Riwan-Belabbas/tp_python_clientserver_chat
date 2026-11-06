@@ -26,8 +26,7 @@ class ClientListener(threading.Thread):
                 # decode() transforme les octets reçus en texte
                 data = self.socket.recv(1024).decode('UTF-8')
             except socket.error:
-                
-                   print("Connexion perdue avec", self.address)
+                print("Connexion perdue avec", self.address)
             self.handle_msg(data)
             time.sleep(0.1)
         print("Ending client thread for", self.address)
@@ -48,12 +47,18 @@ class ClientListener(threading.Thread):
             # Cas 1 : annonce du pseudo -> on l'enregistre et on prévient tout le monde
             self.username = username_result.group(1)
             self.server.echo("{0} has joined.\n".format(self.username))
+        elif data == "/name":
+            # Commande spéciale : le serveur répond avec son nom, UNIQUEMENT à ce client
+            try:
+                self.socket.sendall("Serveur : {0}\n".format(self.server.name).encode("UTF-8"))
+            except socket.error:
+                print("Cannot send the server name")
         elif data == "QUIT":
-            # Cas 2 : le client demande à partir
+            # Le client demande à partir
             self.quit()
         elif data == "":
-            # Cas 3 : message vide = le client a fermé sa connexion
+            # Message vide = le client a fermé sa connexion
             self.quit()
         else:
-            # Cas 4 : message de chat normal -> diffusé à tous
+            # Message de chat normal -> diffusé à tous
             self.server.echo(data)
