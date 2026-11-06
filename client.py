@@ -2,6 +2,7 @@ import threading
 import socket
 import time
 import re
+import sys
 
 
 class Client():
@@ -69,14 +70,24 @@ class Client():
 
 # Ce bloc ne s'exécute que si on lance ce fichier directement (py client.py)
 if __name__ == "__main__":
-    # Questions posées à l'utilisateur
-    username = input("username: ")
-    server = input("server: ")
-    port = int(input("port: "))  # int() convertit le texte en nombre
-    client = Client(username, server, port)
-    client.listen()  # lance l'écoute en arrière-plan
+    username = input("Pseudo : ")
+    # "ou" : si l'utilisateur appuie sur Entrée, on prend la valeur par défaut
+    server = input("Adresse du serveur (Entrée = localhost) : ") or "localhost"
+    port_text = input("Port (Entrée = 59001) : ") or "59001"
+    try:
+        port = int(port_text)
+    except ValueError:
+        # int() échoue si on tape autre chose qu'un nombre
+        print("Erreur : le port doit être un nombre.")
+        sys.exit(1)
+    try:
+        client = Client(username, server, port)
+    except socket.error:
+        # La connexion échoue si le serveur est éteint ou si l'adresse/le port est faux
+        print("Erreur : impossible de se connecter à {0}:{1}. Le serveur est-il lancé ?".format(server, port))
+        sys.exit(1)
+    client.listen()
     message = ""
-    # Boucle principale : envoie tout ce que l'utilisateur tape, jusqu'à "QUIT"
     while message != "QUIT":
         message = input()
         client.send(message)
