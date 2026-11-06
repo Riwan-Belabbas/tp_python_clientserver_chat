@@ -1,9 +1,48 @@
 import queue
 import socket
+import time
 import tkinter as tk
 from tkinter import scrolledtext
 
 from client import Client  # on réutilise la classe Client du terminal (connexion, envoi, écoute)
+
+# Port UDP des serveurs pour la découverte automatique (le même que dans server.py)
+DISCOVERY_PORT = 59002
+
+
+def discover_servers(timeout=1.5):
+    """Cherche les serveurs du réseau local.
+    Envoie "/name" en UDP (broadcast + adresse locale), puis collecte les réponses
+    pendant 'timeout' secondes. Renvoie une liste de (nom, ip, port)."""
+    found = {}
+    udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    udp.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)  # autorise le broadcast
+    udp.settimeout(0.3)  # recvfrom() ne bloque pas plus de 0,3 s à chaque tour
+    try:
+        # 255.255.255.255 = "tout le réseau local" ; 127.0.0.1 = cette machine (sécurité pour la démo)
+        for target in ("255.255.255.255", "127.0.0.1"):
+            try:
+                udp.sendto(b"/name", (target, DISCOVERY_PORT))
+            except OSError:
+                pass
+        end = time.time() + timeout
+        while time.time() < end:
+            try:
+                data, address = udp.recvfrom(1024)
+            except socket.timeout:
+                continue
+            except ConnectionResetError:
+                continue  # Windows : signale qu'aucun serveur n'écoutait sur une des adresses
+            except OSError:
+                break
+            try:
+                name, port = data.decode("UTF-8").rsplit(";", 1)
+                found[(name, int(port))] = address[0]  # même serveur vu deux fois = une seule entrée
+            except ValueError:
+                pass  # réponse mal formée : on l'ignore
+    finally:
+        udp.close()
+    return [(name, ip, port) for (name, port), ip in found.items()]
 
 
 class GuiClient(Client):
@@ -30,6 +69,7 @@ class ChatApp():
         self.window = tk.Tk()
         self.window.title("Chat")
         self.client = None
+        self.found_servers = []  # résultats de la dernière recherche
         self.incoming = queue.Queue()  # les messages reçus attendent ici d'être affichés
         self.window.protocol("WM_DELETE_WINDOW", self.on_close)  # clic sur la croix
         self.build_login()
@@ -41,27 +81,61 @@ class ChatApp():
         self.login_frame.pack(padx=20, pady=20)
 
         tk.Label(self.login_frame, text="Pseudo :").grid(row=0, column=0, sticky="e")
-        self.username_entry = tk.Entry(self.login_frame)
+        self.username_entry = tk.Entry(self.login_frame, width=28)
         self.username_entry.grid(row=0, column=1, pady=3)
 
         tk.Label(self.login_frame, text="Serveur :").grid(row=1, column=0, sticky="e")
-        self.server_entry = tk.Entry(self.login_frame)
+        self.server_entry = tk.Entry(self.login_frame, width=28)
         self.server_entry.insert(0, "localhost")  # valeur par défaut
         self.server_entry.grid(row=1, column=1, pady=3)
 
         tk.Label(self.login_frame, text="Port :").grid(row=2, column=0, sticky="e")
-        self.port_entry = tk.Entry(self.login_frame)
+        self.port_entry = tk.Entry(self.login_frame, width=28)
         self.port_entry.insert(0, "59001")  # valeur par défaut
         self.port_entry.grid(row=2, column=1, pady=3)
 
-        # Étiquette rouge pour afficher les erreurs de connexion
-        self.error_label = tk.Label(self.login_frame, fg="red", wraplength=250)
-        self.error_label.grid(row=3, column=0, columnspan=2)
+        # Découverte automatique : bouton + liste des serveurs trouvés
+        tk.Button(self.login_frame, text="Rechercher des serveurs", command=self.search_servers).grid(
+            row=3, column=0, columnspan=2, pady=(10, 3))
+        self.server_list = tk.Listbox(self.login_frame, height=4, width=45)
+        self.server_list.grid(row=4, column=0, columnspan=2)
+        self.server_list.bind("<<ListboxSelect>>", self.on_server_selected)  # un clic remplit les champs
+        self.server_list.bind("<Double-Button-1>", lambda event: self.connect())  # double-clic = connexion
+
+        # Étiquette de statut (rouge pour une erreur)
+        self.status_label = tk.Label(self.login_frame, wraplength=300)
+        self.status_label.grid(row=5, column=0, columnspan=2, pady=3)
 
         tk.Button(self.login_frame, text="Se connecter", command=self.connect).grid(
-            row=4, column=0, columnspan=2, pady=5)
+            row=6, column=0, columnspan=2, pady=5)
         self.username_entry.focus()
         self.window.bind("<Return>", lambda event: self.connect() if self.client is None else None)
+
+    def set_status(self, text, error=False):
+        self.status_label.config(text=text, fg="red" if error else "black")
+
+    def search_servers(self):
+        """Lance la découverte automatique et remplit la liste."""
+        self.set_status("Recherche en cours...")
+        self.window.update()  # force l'affichage du message avant la recherche (≈ 1,5 s)
+        self.found_servers = discover_servers()
+        self.server_list.delete(0, "end")
+        for name, ip, port in self.found_servers:
+            self.server_list.insert("end", "{0}  ({1}:{2})".format(name, ip, port))
+        if self.found_servers:
+            self.set_status("{0} serveur(s) trouvé(s). Clique sur l'un d'eux.".format(len(self.found_servers)))
+        else:
+            self.set_status("Aucun serveur trouvé.", error=True)
+
+    def on_server_selected(self, event=None):
+        """Quand on clique sur un serveur de la liste, on remplit l'adresse et le port."""
+        selection = self.server_list.curselection()
+        if selection:
+            name, ip, port = self.found_servers[selection[0]]
+            self.server_entry.delete(0, "end")
+            self.server_entry.insert(0, ip)
+            self.port_entry.delete(0, "end")
+            self.port_entry.insert(0, str(port))
 
     def connect(self):
         username = self.username_entry.get().strip()
@@ -69,18 +143,19 @@ class ChatApp():
         port_text = self.port_entry.get().strip() or "59001"
 
         if not username:
-            self.error_label.config(text="Erreur : choisis un pseudo.")
+            self.set_status("Erreur : choisis un pseudo.", error=True)
             return
         try:
             port = int(port_text)
         except ValueError:
-            self.error_label.config(text="Erreur : le port doit être un nombre.")
+            self.set_status("Erreur : le port doit être un nombre.", error=True)
             return
         try:
             self.client = GuiClient(username, server, port, self.incoming)
         except socket.error:
-            self.error_label.config(
-                text="Erreur : impossible de se connecter à {0}:{1}. Le serveur est-il lancé ?".format(server, port))
+            self.set_status(
+                "Erreur : impossible de se connecter à {0}:{1}. Le serveur est-il lancé ?".format(server, port),
+                error=True)
             return
 
         self.client.listen()          # lance l'écoute du serveur dans un thread séparé

@@ -1,7 +1,11 @@
 import socket
 import sys  # utilisé pour sortir du programme
+import threading
 import time
 from clientthread import ClientListener
+
+# Port UDP sur lequel le serveur répond aux appels "Qui est là ?" (découverte automatique)
+DISCOVERY_PORT = 59002
 
 
 class Server():
@@ -10,6 +14,7 @@ class Server():
     def __init__(self, port, name="Serveur de chat"):
         # Le nom du serveur : renvoyé aux clients qui envoient la commande /name
         self.name = name
+        self.port = port
         # Création d'un socket TCP (SOCK_STREAM) en IPv4 (AF_INET) : la "prise réseau" du serveur
         self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         # On attache le socket au port donné ('' = toutes les interfaces réseau de la machine)
@@ -20,8 +25,31 @@ class Server():
         # Liste des sockets de tous les clients connectés (sert à diffuser les messages)
         self.clients_sockets = []
 
+    def discovery(self):
+        """Répond aux appels de découverte (UDP) : un client envoie "/name",
+        le serveur répond avec son nom et son port TCP."""
+        udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # SOCK_DGRAM = UDP
+        try:
+            udp.bind(('', DISCOVERY_PORT))
+        except socket.error:
+            print("Découverte automatique indisponible (port UDP {0} déjà utilisé)".format(DISCOVERY_PORT))
+            return
+        print("Découverte automatique active (UDP", DISCOVERY_PORT, ")")
+        while True:
+            try:
+                # recvfrom() attend un message et donne aussi l'adresse de l'expéditeur
+                data, address = udp.recvfrom(1024)
+            except socket.error:
+                continue
+            if data.decode("UTF-8", errors="ignore") == "/name":
+                # Réponse : "nom;port" -> le client saura quoi afficher et où se connecter
+                reply = "{0};{1}".format(self.name, self.port)
+                udp.sendto(reply.encode("UTF-8"), address)
+
     def run(self):
         """Boucle principale : accepte les nouveaux clients, un thread par client."""
+        # Thread de découverte automatique, en arrière-plan (daemon = s'arrête avec le programme)
+        threading.Thread(target=self.discovery, daemon=True).start()
         while True:
             print("listening new customers")
             try:
