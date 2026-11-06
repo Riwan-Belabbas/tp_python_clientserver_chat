@@ -1,4 +1,4 @@
-from socket import socket
+import socket
 import threading
 import re
 import time
@@ -26,9 +26,8 @@ class ClientListener(threading.Thread):
                 # decode() transforme les octets reçus en texte
                 data = self.socket.recv(1024).decode('UTF-8')
             except socket.error:
-                # Attention : "socket" est ici la classe importée ci-dessus,
-                # elle n'a pas d'attribut "error" (bug à corriger à l'étape 4)
-                print("Unable to receive data")
+                
+                   print("Connexion perdue avec", self.address)
             self.handle_msg(data)
             time.sleep(0.1)
         print("Ending client thread for", self.address)
